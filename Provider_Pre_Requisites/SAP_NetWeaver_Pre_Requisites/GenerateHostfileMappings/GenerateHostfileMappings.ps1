@@ -3,25 +3,53 @@
 # </copyright>
 
 param(
-#[Parameter(Mandatory=$true)]]
-[int]$instanceNumber
+[Parameter(Mandatory=$true)][int]$instanceNumber
 )
 
 # Set the path to the SAP hostctrl executable
-Set-Location -Path "C:\Program Files\SAP\hostctrl\exe"
+if (Test-Path -Path "C:\Program Files\SAP\hostctrl\exe")
+{
+    Set-Location -Path "C:\Program Files\SAP\hostctrl\exe"
+}
+else
+{
+    Write-Output "SAP hostctrl directory not found"
+    Exit 1
+}
 
 # Get the hosts of the SAP system instance
-$hosts = .\sapcontrol -prot NI_HTTP -nr $instanceNumber -format script -function GetSystemInstanceList
+if (Test-Path "sapcontrol" -PathType Leaf)
+{
+    $hosts = .\sapcontrol -prot NI_HTTP -nr $instanceNumber -format script -function GetSystemInstanceList
+}
+else
+{
+    Write-Output "sapcontrol executable not found"
+    Exit 1
+}
+
+# Handle known errors
 if (!$hosts)
 {
     Write-Output "Failed to get SAP system instances"
     Exit 1
 }
+elseif ($hosts -match "NIECONN_REFUSED")
+{
+    Write-Output "Wrong Instance Number"
+    Exit 1
+}
+elseif ($hosts -match "LD_LIBRARY_PATH")
+{
+    Write-Output "Sapcontrol not executable"
+    Exit 1
+}
 
-# Filter the list of hosts to get the hostnames, instance numbers and features
+# Filter the list of hosts to get the hostnames, instance numbers, features and display_statuses
 $hostnames = $hosts | Select-String -Pattern "hostname" | ForEach-Object {$_.Line.Split()[2]}
 $instance_nos = $hosts | Select-String -Pattern "instanceNr" | ForEach-Object {$_.Line.Split()[2]}
 $host_features = $hosts | Select-String -Pattern "features" | ForEach-Object {$_.Line.Split()[2]}
+$display_statuses = $hosts | Select-String -Pattern "dispstatus" | ForEach-Object {$_.Line.Split()[2]}
 
 # Get the fully qualified domain name
 $fqdn = .\sapcontrol -prot NI_HTTP -nr $instanceNumber -format script -function ParameterValue | Select-String -Pattern "SAPFQDN" | ForEach-Object {$_.Line.Split("=")[1]}
@@ -39,9 +67,10 @@ for ($i=0; $i -lt $host_features.Length; $i++)
 {
     $features = $host_features[$i]
     $hostname = $hostnames[$i]
+    $display_status = $display_statuses[$i]
 
-    # If the current host is not an app server, get the IP address by pinging the host and add it to the host file entries
-    if (-not($features -match "ABAP"))
+    # If the current host is not an active app server, get the IP address by pinging the host and add it to the host file entries
+    if (-not($features -match "ABAP") -or ($features -match "ABAP" -and $display_status -ne "GREEN"))
     {
         $ping = Test-Connection -ComputerName $hostname -Count 1
         $ip = $ping.IPV4Address.IPAddressToString
@@ -60,6 +89,13 @@ for ($i=0; $i -lt $host_features.Length; $i++)
         }
         $app_server_list_api = "http://$($hostname):81$($instance_no)/msgserver/xml/aslist"
     }
+}
+
+# If there is no message server, throw error
+if (!$app_server_list_api)
+{
+    Write-Output "No message server found"
+    Exit 1
 }
 
 # Call the app server list API
@@ -90,9 +126,10 @@ else
     {
         $features = $host_features[$i]
         $hostname = $hostnames[$i]
+        $display_status = $display_statuses[$i]
 
-        # Filter to get only the app servers
-        if ($features -match "ABAP")
+        # Filter to get only the active app servers
+        if ($features -match "ABAP" -and $display_status -eq "GREEN")
         {
             $ping = Test-Connection -ComputerName $hostname -Count 1
             $ip = $ping.IPV4Address.IPAddressToString

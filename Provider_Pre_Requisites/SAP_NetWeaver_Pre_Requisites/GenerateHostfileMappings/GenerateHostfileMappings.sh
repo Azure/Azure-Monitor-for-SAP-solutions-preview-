@@ -8,26 +8,56 @@
 instanceNumber=00
 
 # Set the path to the SAP hostctrl executable
-cd "/usr/sap/hostctrl/exe"
-
-# Get the hostnames of the SAP system instance
-hosts=$(./sapcontrol -prot PIPE -nr $instanceNumber -format script -function GetSystemInstanceList)
-if [[ -z "$hosts" ]]
+if [ -d "/usr/sap/hostctrl/exe" ]
 then
-    echo "Failed to get SAP system instances"
+    cd "/usr/sap/hostctrl/exe"
+else
+    echo "/usr/sap/hostctrl/exe directory not found" >&2
     exit 1
 fi
 
-# Filter the list of hosts to get the hostnames, instance numbers and features
+# Get the hostnames of the SAP system instance
+if [ -x "/usr/sap/hostctrl/exe/sapcontrol" ]
+then
+	hosts=$(./sapcontrol -prot PIPE -nr $instanceNumber -format script -function GetSystemInstanceList)
+else
+    echo "'sapcontrol' not found in the path '/usr/sap/hostctrl/exe/sapcontrol'" >&2
+    exit 1
+fi
+
+# Handle known errors
+if [[ -z "$hosts" ]]
+then
+    echo "Failed to get SAP system instances" >&2
+	exit 1
+elif [[ "$hosts" == *"NIECONN_REFUSED"* ]]
+then
+    echo "Wrong Instance Number" >&2
+	exit 1
+elif [[ "$hosts" == *"LD_LIBRARY_PATH"* ]]
+then
+    echo "Sapcontrol not executable" >&2
+	exit 1
+fi
+
+# Filter the list of hosts to get the hostnames, instance numbers, features and display_statuses
 hostnames=($(echo "$hosts" | grep "hostname" | cut -d " " -f 3))
 instance_nos=($(echo "$hosts" | grep "instanceNr" | cut -d " " -f 3))
 host_features=($(echo "$hosts" | grep "features" | cut -d " " -f 3))
+display_statuses=($(echo "$hosts" | grep "dispstatus" | cut -d " " -f 3))
+
+# If there is no message server, throw error
+if [[ ! " ${host_features[*]} " =~ [[:space:]]"MESSAGESERVER"[[:space:]] ]]
+then
+    echo "No message server found" >&2
+    exit 1
+fi
 
 # Get the fully qualified domain name
 fqdn=$(./sapcontrol -prot PIPE -nr $instanceNumber -format script -function ParameterValue | grep "SAPFQDN" | cut -d "=" -f 2 | tr -d '\r')
 if [[ -z "$fqdn" ]]
 then
-    echo "Failed to get the FQDN"
+    echo "Failed to get the FQDN" >&2
     exit 1
 fi
 
@@ -42,9 +72,10 @@ for i in "${!host_features[@]}"
 do
     features=${host_features[$i]}
     hostname=${hostnames[$i]}
+	display_status=${display_statuses[$i]}
 
-    # If the current host is not an app server, get the IP address by pinging the host and add it to the host file entries
-    if [[ $features != *"ABAP"* ]]
+    # If the current host is not an active app server, get the IP address by pinging the host and add it to the host file entries
+    if [[ $features != *"ABAP"* || ( $features == *"ABAP"* && $display_status != "GREEN" ) ]]
     then
         ip=$(ping -c 1 $hostname | head -n 1 | cut -d "(" -f 2 | cut -d ")" -f 1)
         host_key="$ip^$hostname"
@@ -102,9 +133,10 @@ else
     do
         features=${host_features[$i]}
         hostname=${hostnames[$i]}
+        display_status=${display_statuses[$i]}
 
-        # Filter to get only the app servers
-        if [[ $features == *"ABAP"* ]]
+        # Filter to get only the active app servers
+        if  [[ $features == *"ABAP"* && $display_status == "GREEN" ]]
         then
             ip=$(ping -c 1 $hostname | head -n 1 | cut -d "(" -f 2 | cut -d ")" -f 1)
             host_key="$ip^$hostname"
