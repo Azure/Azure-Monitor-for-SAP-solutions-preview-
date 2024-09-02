@@ -3,7 +3,7 @@
 # </copyright>
 
 param(
-[Parameter(Mandatory=$true)][int]$instanceNumber
+    [Parameter(Mandatory=$true)][string]$instanceNumber
 )
 
 # Set the path to the SAP hostctrl executable
@@ -18,7 +18,7 @@ else
 }
 
 # Get the hosts of the SAP system instance
-if (Test-Path "sapcontrol" -PathType Leaf)
+if (Test-Path ".\sapcontrol.exe" -PathType Leaf)
 {
     $hosts = .\sapcontrol -prot NI_HTTP -nr $instanceNumber -format script -function GetSystemInstanceList
 }

@@ -17,7 +17,7 @@ else
 fi
 
 # Get the hostnames of the SAP system instance
-if [ -x "/usr/sap/hostctrl/exe/sapcontrol" ]
+if [ -x "./sapcontrol" ]
 then
 	hosts=$(./sapcontrol -prot PIPE -nr $instanceNumber -format script -function GetSystemInstanceList)
 else
@@ -45,13 +45,6 @@ hostnames=($(echo "$hosts" | grep "hostname" | cut -d " " -f 3))
 instance_nos=($(echo "$hosts" | grep "instanceNr" | cut -d " " -f 3))
 host_features=($(echo "$hosts" | grep "features" | cut -d " " -f 3))
 display_statuses=($(echo "$hosts" | grep "dispstatus" | cut -d " " -f 3))
-
-# If there is no message server, throw error
-if [[ ! " ${host_features[*]} " =~ [[:space:]]"MESSAGESERVER"[[:space:]] ]]
-then
-    echo "No message server found" >&2
-    exit 1
-fi
 
 # Get the fully qualified domain name
 fqdn=$(./sapcontrol -prot PIPE -nr $instanceNumber -format script -function ParameterValue | grep "SAPFQDN" | cut -d "=" -f 2 | tr -d '\r')
@@ -102,6 +95,13 @@ do
         app_server_list_uri="http://$hostname:81$instance_no/msgserver/xml/aslist"
     fi
 done
+
+# If there is no message server, throw error
+if [[ -z "$app_server_list_uri" ]]
+then
+    echo "No message server found" >&2
+    exit 1
+fi
 
 # Call the app server list API
 app_servers_response=$(curl -s -w "http_code=%{http_code}\n" "$app_server_list_uri")
