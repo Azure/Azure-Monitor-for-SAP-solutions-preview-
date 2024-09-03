@@ -5,14 +5,14 @@
 #!/bin/bash
 
 # Replace instance number with the instance number of the Central Server instance
-instanceNumber=00
+instanceNumber=$1
 
 # Set the path to the SAP hostctrl executable
 if [ -d "/usr/sap/hostctrl/exe" ]
 then
     cd "/usr/sap/hostctrl/exe"
 else
-    echo "/usr/sap/hostctrl/exe directory not found" >&2
+    echo "SAP hostctrl directory not found" >&2
     exit 1
 fi
 
@@ -21,7 +21,7 @@ if [ -x "./sapcontrol" ]
 then
 	hosts=$(./sapcontrol -prot PIPE -nr $instanceNumber -format script -function GetSystemInstanceList)
 else
-    echo "'sapcontrol' not found in the path '/usr/sap/hostctrl/exe/sapcontrol'" >&2
+    echo "sapcontrol executable not found" >&2
     exit 1
 fi
 
