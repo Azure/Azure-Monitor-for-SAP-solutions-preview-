@@ -62,6 +62,31 @@ if (!$fqdn)
 # Declare a set to store the host file entries
 $hostfile_entries = New-Object System.Collections.Generic.HashSet[string]
 
+function Get-IpFromHostname {
+    param(
+        [Parameter(Mandatory=$true)][string]$Hostname
+    )
+    $retries = 2
+    do {
+        $retries--
+        try
+        {
+            $ping_response = Test-Connection -ComputerName $Hostname -Count 1 -ErrorAction Stop
+            $wasSuccess = $true
+        }
+        catch
+        {
+            $wasSuccess = $false
+        }
+    } while ($retries -gt 0 -and $wasSuccess -eq $false)
+    if ($wasSuccess -eq $false)
+    {
+        Write-Output "Failed to ping host: $Hostname"
+        Exit 1
+    }
+    return $ping_response.IPV4Address.IPAddressToString
+}
+
 # Loop through the host features we have extracted
 for ($i=0; $i -lt $host_features.Length; $i++)
 {
@@ -72,8 +97,7 @@ for ($i=0; $i -lt $host_features.Length; $i++)
     # If the current host is not an active app server, get the IP address by pinging the host and add it to the host file entries
     if (-not($features -match "ABAP") -or ($features -match "ABAP" -and $display_status -ne "GREEN"))
     {
-        $ping = Test-Connection -ComputerName $hostname -Count 1
-        $ip = $ping.IPV4Address.IPAddressToString
+        $ip = Get-IpFromHostname $hostname
         $hostfile_entries.add("$($ip) $($hostname).$($fqdn) $($hostname)")
     }
 
@@ -131,8 +155,7 @@ else
         # Filter to get only the active app servers
         if ($features -match "ABAP" -and $display_status -eq "GREEN")
         {
-            $ping = Test-Connection -ComputerName $hostname -Count 1
-            $ip = $ping.IPV4Address.IPAddressToString
+            $ip = Get-IpFromHostname $hostname
             $hostfile_entries.add("$($ip) $($hostname).$($fqdn) $($hostname)")
         }
     }

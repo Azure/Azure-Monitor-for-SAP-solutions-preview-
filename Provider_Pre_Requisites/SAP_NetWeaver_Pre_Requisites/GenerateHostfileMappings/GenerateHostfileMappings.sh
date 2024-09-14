@@ -60,6 +60,21 @@ hostfile_entries=()
 # Declare an array to store already seen hosts
 seen_hosts=()
 
+get_ip_from_hostname () {
+    ping_response=$(ping -c 1 -W 2 -q $1 2>&1)
+	ping_return_code=$?
+    if [[ $ping_return_code == 1 ]]
+    then
+        ping_response=$(ping -c 1 -W 2 -q $1 2>&1)
+	    ping_return_code=$?
+    fi
+    if [[ $ping_return_code != 0 ]]
+    then
+        return 1
+    fi
+    echo $ping_response | cut -d "(" -f 2 | cut -d ")" -f 1
+}
+
 # Loop through the host features we have extracted
 for i in "${!host_features[@]}"
 do
@@ -70,7 +85,12 @@ do
     # If the current host is not an active app server, get the IP address by pinging the host and add it to the host file entries
     if [[ $features != *"ABAP"* || ( $features == *"ABAP"* && $display_status != "GREEN" ) ]]
     then
-        ip=$(ping -c 1 $hostname | head -n 1 | cut -d "(" -f 2 | cut -d ")" -f 1)
+        ip=$(get_ip_from_hostname $hostname)
+		if [[ $? == 1 ]]
+		then
+			echo "Failed to ping host: $hostname" >&2
+        	exit 1
+		fi
         host_key="$ip^$hostname"
 
         # Check that we don't add the same host twice
@@ -138,7 +158,12 @@ else
         # Filter to get only the active app servers
         if  [[ $features == *"ABAP"* && $display_status == "GREEN" ]]
         then
-            ip=$(ping -c 1 $hostname | head -n 1 | cut -d "(" -f 2 | cut -d ")" -f 1)
+            ip=$(get_ip_from_hostname $hostname)
+            if [[ $? == 1 ]]
+            then
+                echo "Failed to ping host: $hostname" >&2
+                exit 1
+            fi
             host_key="$ip^$hostname"
 
             # Check that we don't add the same host twice
